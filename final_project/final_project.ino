@@ -17,6 +17,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define LED2_PIN 2
 
 bool pinOn = false;
+unsigned long program_time = 0;
 
 
 void setup() {
@@ -24,7 +25,7 @@ void setup() {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
-  int program_time = millis();
+  program_time = millis();
   pinMode(LED1_PIN, OUTPUT);
   pinMode(LED2_PIN, OUTPUT);
   display.display();
@@ -36,27 +37,27 @@ if (millis() % 500 == 0) {
       if (pinOn) {
         digitalWrite(LED1_PIN, HIGH);
         digitalWrite(LED2_PIN, LOW);
-        pinOn = false
+        pinOn = false;
       } else {
         digitalWrite(LED1_PIN, LOW);
         digitalWrite(LED2_PIN, HIGH);
-        pinOn = true
+        pinOn = true;
       }
     }
 
   if (millis() - program_time >= 15000) {
-    program_time = millis()
+    program_time = millis();
   } else if (millis() - program_time >= 10000) {
 
-    drawWorriedFace()
+    drawWorriedFace();
 
   } else if (millis() - program_time >= 5000) {
 
-    drawSadFace()
+    drawSadFace();
 
   } else if (millis() - program_time >= 0) {
 
-    drawHappyFace()
+    drawHappyFace();
   }
 }
 
