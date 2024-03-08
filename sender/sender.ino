@@ -63,10 +63,10 @@ void updateStatus()
   unsigned long currentTime = millis();
   if (!isCalibrationMode) {
     int weight = scale.get_units(10);
-    Serial.print("Read weight: ");
-    Serial.print(weight);
-    Serial.print("Water level: ");
-    Serial.println(waterLevel);
+    // Serial.print("Read weight: ");
+    // Serial.print(weight);
+    // Serial.print(" Water level: ");
+    // Serial.println(waterLevel);
     if (weight < waterLevel - SIP_THRESHOLD) {
       happinessLevel += 20; // Increase happiness if the user drinks water
       lastHappinessCooldownTime = currentTime;
@@ -96,6 +96,7 @@ void checkForAck()
     if (Serial1.read() == 255) {
       outOfRangePingCount = 0;
       state = CONNECTED;
+      Serial.println("ack");
     } else { 
       outOfRangePingCount++;
     }

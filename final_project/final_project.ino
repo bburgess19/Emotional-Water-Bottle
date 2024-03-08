@@ -16,7 +16,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define LED1_PIN 1
 #define LED2_PIN 2
 
-bool pinOn = false
+bool pinOn = false;
 
 
 void setup() {
@@ -27,7 +27,7 @@ void setup() {
   int program_time = millis();
   pinMode(LED1_PIN, OUTPUT);
   pinMode(LED2_PIN, OUTPUT);
-  display.display()
+  display.display();
 }
 
 void loop() {

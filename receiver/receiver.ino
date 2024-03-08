@@ -22,26 +22,28 @@ void setup() {
     for(;;); // Don't proceed, loop forever
   }
   pinMode(LED_PIN, OUTPUT);
-  Serial.begin(115200);
   Serial1.begin(115200);
   display.display();
 }
 
 void loop() {
   if (Serial1.available()) {
-    if (Serial1.read() == '255') {
+    if (Serial1.read() == 255) {
       waterLevel = int(Serial1.read());
       happinessLevel = int(Serial1.read());
       sendAck();
       clearDiagnostics();
       printDiagnostics();
+      digitalWrite(LED_PIN, HIGH);
+      delay(100);
+      digitalWrite(LED_PIN, LOW);
     }
   }
 }
 
 /* Sends an acknowledgement to the server */
 void sendAck() {
-  Serial1.write('255');
+  Serial1.write(255);
 }
 
 /* Clears the diagnostics */
