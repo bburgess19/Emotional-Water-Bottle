@@ -1,67 +1,212 @@
+#include "math.h"
+#include "HX711.h"
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
+#define LOADCELL_DOUT_PIN  0
+#define LOADCELL_SCK_PIN  8
+#define VIBROMOTOR_PIN 1
+#define BUTTON_PIN 2
+#define OLED_RESET     -1
+#define SCREEN_ADDRESS 0x3C
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define USB  // USB or BT
 
-#define OLED_RESET     -1
-#define SCREEN_ADDRESS 0x3D
+#ifdef USB
+#define MySerial Serial  // use this for USB
+#endif
+
+#ifdef BT
+#define MySerial Serial1  // use this for Bluetooth: connect HC-05's RX to Xiao's TX (6), HC-05's TX to Xiao's RX (7)
+#endif
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+enum ConnectionState { CONNECTED, DISCONNECTED };
+enum CalibrationState { Initial, CalibrateLow, CalibrateHigh };
 
-#define LED1_PIN 1
-#define LED2_PIN 2
+/*** GLOBAL CONSTANTS ***/
+const int PING_TIMEOUT = 200;
+const int PING_MAX = 5;
+const int HAPPINESS_COOLDOWN = 1000;// * 60;
+const float SIP_THRESHOLD = 0.1;
+const int GESTURE_DURATION = 1000;
+const int GESTURE_COOLDOWN = 200;
+const int DIAG_DURATION = 3000;
+const int MAX_PING_INTERVAL = 1000;
 
-bool pinOn = false;
-unsigned long program_time = 0;
+/*** STATE VARIABLES ***/
+ConnectionState state = DISCONNECTED;
+unsigned long lastPingTime = 0;
+unsigned long lastHappinessCooldownTime = 0;
+unsigned long outOfRangePingCount = 0;
+int waterLevel = 0;
+int happinessLevel = 0;
+float bottleMin = 0;
+float bottleMax = 0;
+bool isCalibrating = false;
+bool isBottleLifted = false;
+bool isDiagShowing = false;
+bool didStartGesture = false;
+bool didReleaseDuringGesture = false;
+bool didNotifyDistanceError = false;
+CalibrationState calibrationState = Initial;
 
+/*** LOAD CELL VARIABLES ***/
+HX711 scale;
+float calibration_factor = -110000;
 
-void setup() {
+void setup() 
+{
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
-  program_time = millis();
-  pinMode(LED1_PIN, OUTPUT);
-  pinMode(LED2_PIN, OUTPUT);
+
+  MySerial.begin(115200);
+  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+  scale.set_scale();
+  scale.tare();
   display.display();
 }
 
-void loop() {
+void loop() 
+{
+  updateStatus();
+}
 
-if (millis() % 500 == 0) {
-      if (pinOn) {
-        digitalWrite(LED1_PIN, HIGH);
-        digitalWrite(LED2_PIN, LOW);
-        pinOn = false;
-      } else {
-        digitalWrite(LED1_PIN, LOW);
-        digitalWrite(LED2_PIN, HIGH);
-        pinOn = true;
-      }
-    }
-
-  if (millis() - program_time >= 15000) {
-    program_time = millis();
-  } else if (millis() - program_time >= 10000) {
-
-    drawWorriedFace();
-
-  } else if (millis() - program_time >= 5000) {
-
-    drawSadFace();
-
-  } else if (millis() - program_time >= 0) {
-
-    drawHappyFace();
+/*
+ * Updates the status of the wristband
+ */
+void updateStatus()
+{
+  unsigned long currentTime = millis();
+  float weight = scale.get_units(10);
+  waterLevel = (weight - bottleMin) / (bottleMax - bottleMin) * 100;
+  if (weight < waterLevel - SIP_THRESHOLD) {
+    happinessLevel = min(happinessLevel + 20, 100); // Increase happiness if the user drinks water
+    lastHappinessCooldownTime = currentTime;
+  } else if (currentTime - lastHappinessCooldownTime > HAPPINESS_COOLDOWN) {
+    happinessLevel = max(happinessLevel - 1, 0); // Decrease happiness if the user hasn't drank water in a while
+    lastHappinessCooldownTime = currentTime;
   }
 }
 
+/*
+ * Sends a ping to the wristband
+ */
+void pingWristband(unsigned long currentTime)
+{
+  lastPingTime = currentTime;
+  sendStatus();
+  checkForMessage();
+}
 
+/*
+ * Checks for messages from the wristband
+ */
+void checkForMessage()
+{
+  if (MySerial.available()) {
+    if (MySerial.read() == 255) {
+      byte code = MySerial.read();
+
+      switch (code) {
+        case 'a':
+          handleAck();
+          break;
+        case 'c':
+          if (!isCalibrating) {
+            beginCalibration();
+          } else {
+            calibrationHandler();
+          }
+          break;
+      }
+    } else { 
+      outOfRangePingCount++;
+    }
+  }
+}
+
+/* 
+ * Reports the current status to the wristband
+ */
+void sendStatus()
+{
+  MySerial.write(255);
+  MySerial.write(waterLevel);
+  MySerial.write(happinessLevel);
+}
+
+/* Handles the acknowledgement from the wristband */
+void handleAck() {
+  outOfRangePingCount = 0;
+  state = CONNECTED;
+  Serial.println("ack");
+}
+
+/* Handles a calibration message */
+void calibrationHandler() {
+  int weight = scale.get_units(10);
+  switch (calibrationState) {
+    case Initial:
+      bottleMin = weight;
+      drawCalibrationState();
+      break;
+    case CalibrateLow:
+      bottleMax = weight;
+      drawCalibrationState();
+      break;
+    default:
+      isCalibrating = false;
+      drawFace();
+  }
+}
+
+/* Initializes calibration mode */
+void beginCalibration() {
+  isCalibrating = true;
+  calibrationState = Initial;
+  drawCalibrationState();
+}
+
+/* Draws the instructions for the calibration states */
+void drawCalibrationState() {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(0, 0);
+
+  switch (calibrationState) {
+    case Initial:
+      display.print("Place empty bottle");
+      display.display();
+      break;
+    case CalibrateLow:
+      display.print("Place full bottle");
+      display.display();
+      break;
+    default:
+      display.clearDisplay();
+      break;
+  }
+}
+
+/* Draws the face for the bottle */
+void drawFace() {
+  display.clearDisplay();
+  if (happinessLevel > 66) {
+    drawHappyFace();
+  } else if (happinessLevel > 33) {
+    drawWorriedFace();
+  } else {
+    drawSadFace();
+  }
+}
+
+/* Draws the happy face */
 void drawHappyFace() {
   display.clearDisplay();
 
@@ -72,6 +217,7 @@ void drawHappyFace() {
   display.display();
 }
 
+/* Draws the sad face */
 void drawSadFace() {
   display.clearDisplay();
 
@@ -82,6 +228,7 @@ void drawSadFace() {
   display.display();
 }
 
+/* Draws the worried face */
 void drawWorriedFace() {
   display.clearDisplay();
 
@@ -91,7 +238,3 @@ void drawWorriedFace() {
   display.print("(. ~ .)");
   display.display();
 }
-
-
-
-
