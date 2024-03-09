@@ -10,6 +10,15 @@
 #define SCREEN_ADDRESS 0x3C
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define USB  // USB or BT
+
+#ifdef USB
+#define MySerial Serial  // use this for USB
+#endif
+
+#ifdef BT
+#define MySerial Serial1  // use this for Bluetooth: connect HC-05's RX to Xiao's TX (6), HC-05's TX to Xiao's RX (7)
+#endif
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
@@ -46,7 +55,7 @@ void setup()
     for(;;); // Don't proceed, loop forever
   }
 
-  Serial1.begin(115200);
+  MySerial.begin(115200);
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
   scale.set_scale();
   scale.tare();
@@ -105,9 +114,9 @@ void pingWristband(unsigned long currentTime)
  */
 void checkForMessage()
 {
-  if (Serial1.available()) {
-    if (Serial1.read() == 255) {
-      byte code = Serial1.read();
+  if (MySerial.available()) {
+    if (MySerial.read() == 255) {
+      byte code = MySerial.read();
 
       switch (code) {
         case 'a':
@@ -132,9 +141,9 @@ void checkForMessage()
  */
 void sendStatus()
 {
-  Serial1.write(255);
-  Serial1.write(waterLevel);
-  Serial1.write(happinessLevel);
+  MySerial.write(255);
+  MySerial.write(waterLevel);
+  MySerial.write(happinessLevel);
 }
 
 /* Handles the acknowledgement from the wristband */
