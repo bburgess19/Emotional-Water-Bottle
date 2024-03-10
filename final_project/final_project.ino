@@ -42,6 +42,8 @@ ConnectionState state = DISCONNECTED;
 unsigned long lastPingTime = 0;
 unsigned long lastHappinessCooldownTime = 0;
 unsigned long outOfRangePingCount = 0;
+unsigned long gestureStartTime = 0;
+unsigned long gestureCooldownStartTime = 0;
 int waterLevel = 0;
 int happinessLevel = 0;
 float bottleMin = 0;
@@ -66,6 +68,8 @@ void setup()
   }
 
   MySerial.begin(115200);
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
   scale.set_scale();
   scale.tare();
@@ -75,6 +79,7 @@ void setup()
 void loop() 
 {
   updateStatus();
+  handleButtonGesture();
 }
 
 /*
@@ -154,14 +159,17 @@ void calibrationHandler() {
   switch (calibrationState) {
     case Initial:
       bottleMin = weight;
+      calibrationState = CalibrateLow;
       drawCalibrationState();
       break;
     case CalibrateLow:
       bottleMax = weight;
+      calibrationState = CalibrateHigh;
       drawCalibrationState();
       break;
     default:
       isCalibrating = false;
+      calibrationState = Initial;
       drawFace();
   }
 }
@@ -192,6 +200,91 @@ void drawCalibrationState() {
       display.clearDisplay();
       break;
   }
+}
+
+/* Handles all button gestures.
+ *
+ * The functionality is twofold:
+ * 1. Show diagnostics with a single button press
+ * 2. Start calibration with a double button press
+ * 3. Turn off pairing with a long press
+ */
+void handleButtonGesture() {
+  unsigned long currentTime = millis();
+  int isHeld = digitalRead(BUTTON_PIN);
+  
+  // Exit early for a cooldown
+  if (currentTime - gestureCooldownStartTime < GESTURE_COOLDOWN)
+    return;
+
+  // Begin a gesture if it hasn't started yet
+  if (isHeld && !didStartGesture) {
+    didStartGesture = true;
+    gestureStartTime = currentTime;
+    digitalWrite(LED_BUILTIN, HIGH);
+    vibrate();
+    return;
+  }
+
+  // Exit early if this is not a gesture
+  if (!didStartGesture) return;
+
+  if (isHeld) {
+    // End the gesture after the timeout
+    if (currentTime - gestureStartTime > GESTURE_DURATION) {
+      if (isCalibrating) {
+        calibrationHandler();
+      }
+
+      printDiagnostics();
+      
+      didStartGesture = false;
+      gestureCooldownStartTime = currentTime;
+      digitalWrite(LED_BUILTIN, LOW);
+      stopVibrating();
+    }
+
+    if (didReleaseDuringGesture) {
+      if (!isCalibrating) {
+        // Start calibration
+        beginCalibration();
+        didStartGesture = false;
+        digitalWrite(LED_BUILTIN, LOW);
+        stopVibrating();
+      }
+    }
+  } else {
+      didReleaseDuringGesture = true;
+  }
+}
+
+/* Vibrates the vibromotor */
+void vibrate() {
+  digitalWrite(VIBROMOTOR_PIN, HIGH);
+}
+
+/* Stops the vibration */
+void stopVibrating() {
+  digitalWrite(VIBROMOTOR_PIN, LOW);
+}
+
+/* Clears the diagnostics */
+void clearDiagnostics() {
+  display.fillRect(60, 0, 40, 30, BLACK);
+}
+
+/* Prints diagnostics to the display */
+void printDiagnostics() {
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 10);
+    display.print("Water %: ");
+    display.print(waterLevel);
+    display.print(0, 20);
+    display.print("Happiness: ");
+    display.print(happinessLevel);
+    display.display();
+    isDiagShowing = true;
 }
 
 /* Draws the face for the bottle */
